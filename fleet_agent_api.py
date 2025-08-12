@@ -551,7 +551,7 @@ Frame your response from a fleet management perspective, explaining how these sp
         data = {
             "model": "deepseek-chat",
             "messages": messages,
-            "max_tokens": 10000,  # Increased for efficiency
+            "max_tokens": 4096,  # Increased for efficiency
             "temperature": 0.1,  # Slightly more deterministic
         }
         
