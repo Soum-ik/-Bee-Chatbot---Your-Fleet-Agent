@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - Prod_main
+  workflow_dispatch:
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -15,20 +17,60 @@ jobs:
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/fleetblox_db.pem
           chmod 600 ~/.ssh/fleetblox_db.pem
-          
-      - name: deploy to ec2
+
+      - name: Deploy to EC2
         run: |
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/fleetblox_db.pem ubuntu@ec2-3-238-250-120.compute-1.amazonaws.com '
-            cd /home/ubuntu/personal-assistant-chatbot
-            sudo su
-            git stash
-            git fetch origin Prod_main
-            git pull origin main
-            git reset --hard origin/Prod_main
-            pkill -f "chat-bot" || true
-            python3 -m venv env
-            source ./env/bin/activate
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/fleetblox_db.pem ubuntu@ec2-3-238-250-120.compute-1.amazonaws.com '
+            set -euo pipefail
+
+            APP_DIR="/home/ubuntu/personal-assistant-chatbot"
+            BRANCH="Prod_main"
+            VENV_PATH="$APP_DIR/env"        # change if your venv path differs
+            GUNICORN_NAME="chat-bot"
+            GUNICORN_BIND="0.0.0.0:8001"
+            WSGI_APP="app:app"
+            LOG_ACCESS="$APP_DIR/gunicorn-access.log"
+            LOG_ERROR="$APP_DIR/gunicorn-error.log"
+
+            cd "$APP_DIR"
+
+            # Ensure correct ownership (fixes FETCH_HEAD permission error)
+            sudo chown -R ubuntu:ubuntu "$APP_DIR"
+
+            # Make this repo safe for git after sudo operations
+            git config --global --add safe.directory "$APP_DIR"
+
+            # Get the latest code from the correct branch
+            git fetch --all --prune
+            # If the branch doesn't exist locally yet:
+            if ! git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+              git checkout -b "$BRANCH" "origin/$BRANCH"
+            else
+              git checkout "$BRANCH"
+            fi
+            git reset --hard "origin/$BRANCH"
+
+            # Stop any existing gunicorn with this name (root-owned or not)
+            sudo pkill -f "gunicorn.*${GUNICORN_NAME}" || true
+
+            # Activate env and install deps (gunicorn is already in venv)
+            if [ -f "$VENV_PATH/bin/activate" ]; then
+              . "$VENV_PATH/bin/activate"
+            else
+              # (Optional) create venv once if it's missing
+              python3 -m venv "$VENV_PATH"
+              . "$VENV_PATH/bin/activate"
+            fi
+
             pip install -r requirements.txt
-            pip install gunicorn
-            gunicorn -w 1 -b 0.0.0.0:8001 app:app --timeout 1800 --name chat-bot --access-logfile gunicorn-access.log --error-logfile gunicorn-error.log --daemon
-            '
+
+            # Start gunicorn in background with a name we can pkill next time
+            # Use --daemon so it survives after SSH ends
+            nohup "$VENV_PATH/bin/gunicorn" \
+              -w 1 -b "$GUNICORN_BIND" \
+              --timeout 1800 \
+              --name "$GUNICORN_NAME" \
+              --access-logfile "$LOG_ACCESS" \
+              --error-logfile "$LOG_ERROR" \
+              "$WSGI_APP" >/dev/null 2>&1 &
+          '
