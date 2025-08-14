@@ -15,4 +15,4 @@ COPY fleet_agent_api.py .
 EXPOSE 5000
 
 # Run the application
-CMD ["python", "fleet_agent_api.py"]
+CMD ["python", "main.py"]
