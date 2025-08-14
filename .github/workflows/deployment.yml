@@ -1,0 +1,31 @@
+name: EC2 Deploy
+
+on:
+  push:
+    branches:
+      - Prod_main
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH to ECS and deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ec2-3-238-250-120.compute-1.amazonaws.com
+          username: ubuntu
+          key: ${{ secrets.KEY }} 
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -e
+            cd /home/ubuntu/personal-assistant-chatbot
+            sudo su
+            git stash
+            git fetch origin Prod_main
+            git pull origin main
+            git reset --hard origin/Prod_main
+            pkill -f "chat-bot" || true
+            python3 -m venv env
+            source ./env/bin/activate
+            pip install -r requirements.txt
+            pip install gunicorn
+            gunicorn -w 1 -b 0.0.0.0:8001 app:app --timeout 1800 --name chat-bot --access-logfile gunicorn-access.log --error-logfile gunicorn-error.log --daemon
