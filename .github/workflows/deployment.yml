@@ -8,15 +8,17 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: SSH to ECS and deploy
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ec2-3-238-250-120.compute-1.amazonaws.com
-          username: ubuntu
-          key: ${{ secrets.KEY }} 
-          port: ${{ secrets.SSH_PORT || 22 }}
-          script: |
-            set -e
+      - name: Set up SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.NEW_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/fleetblox_db.pem
+          chmod 600 ~/.ssh/fleetblox_db.pem
+          
+      - name: deploy to ec2
+        run: |
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/fleetblox_db.pem ubuntu@ec2-3-238-250-120.compute-1.amazonaws.com '
             cd /home/ubuntu/personal-assistant-chatbot
             sudo su
             git stash
@@ -29,3 +31,4 @@ jobs:
             pip install -r requirements.txt
             pip install gunicorn
             gunicorn -w 1 -b 0.0.0.0:8001 app:app --timeout 1800 --name chat-bot --access-logfile gunicorn-access.log --error-logfile gunicorn-error.log --daemon
+            '
